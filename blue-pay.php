@@ -726,6 +726,9 @@ class GFBluePay {
             <p style="text-align: left;">
                 <?php _e(sprintf("BluePay is a payment gateway for merchants. Use Gravity Forms to collect payment information and automatically integrate to your client's BluePay account. If you don't have a BluePay account, you can %ssign up for one here%s", "<a href='https://www.bluepay.com/' target='_blank'>" , "</a>"), "gravity-forms-bluepay") ?>
             </p>
+            <p style="text-align: left;">
+            	<?php _e("Log into the Bluepay 2.0 Gateway Manager. From the Administration menu choose Accounts, then List. On the Account List, under Options on the right-hand side, choose the first icon to view the account. It looks like a pair of eyes. On the Account Admin page, you will find the ACCOUNT ID is the second item in the right-hand column and the SECRET KEY is about halfway down the page, near a large red warning.", "gravity-forms-bluepay") ?>
+            </p>
 
             <table class="form-table">
                 <tr>
@@ -742,8 +745,6 @@ class GFBluePay {
                     <th scope="row" nowrap="nowrap"><label for="gf_blue_pay_account_id"><?php _e("Account ID", "gravity-forms-bluepay"); ?></label> </th>
                     <td width="88%">
                         <input class="size-1" id="gf_blue_pay_account_id" name="gf_blue_pay_account_id" value="<?php echo esc_attr(rgar($settings,"account_id")) ?>" />                        
-                        <br/>
-                        <small><?php _e("You can find your unique <strong>Account ID</strong> by clicking on the 'Account' link at the BluePay Merchant Interface.", "gravity-forms-bluepay") ?></small>
                     </td>
                 </tr>
                 <tr>

@@ -490,7 +490,7 @@ class GFBluePay {
 
 		$transaction['Amount'] = number_format($form_data["amount"], 2);
 
-		if( isset( $transaction['card_number'] ) ){
+		if( isset( $form_data['card_number'] ) ){
 			$transaction['card_number'] = $form_data["card_number"];
 			$exp_date = str_pad($form_data["expiration_date"][0], 2, "0", STR_PAD_LEFT) . substr($form_data["expiration_date"][1], -2);
 			$transaction['Exp'] = $exp_date;

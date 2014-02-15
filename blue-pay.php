@@ -131,6 +131,7 @@ class GFBluePay {
 	public static function blue_pay_validation($validation_result){
 
 		$config = self::is_ready_for_capture($validation_result);
+		//$config = self::get_config($validation_result["form"]);
 		$form = $validation_result["form"];
 
 		if(!$config)
@@ -158,8 +159,8 @@ class GFBluePay {
 
 			//authorizing credit card and setting self::$transaction_response variable
 			$validation_result = self::authorize_ach($form_data, $config, $validation_result);
-		}
 
+		}		
 		return $validation_result;
 	}
 
@@ -169,7 +170,6 @@ class GFBluePay {
 
 		$transaction = self::get_initial_transaction($form_data, $config);
 		$transaction = apply_filters("gform_blue_pay_transaction_pre_authorize", $transaction, $form_data, $config, $validation_result["form"]);
-		
 		
 		$settings = self::get_api_settings( self::get_local_api_settings( $config ) );
 
@@ -191,9 +191,10 @@ class GFBluePay {
 			$transaction['countryCode'],
 			$transaction['CustomerPhone'],
 			$transaction['CustomerEmail'],
-			null,
-			null,
-			$transaction['address2']
+			$transaction['custom1'],
+			$transaction['custom2'],
+			$transaction['address2'],
+			$transaction['Memo']
 		);
 
 		$authorize->setOrderId( $transaction['OrderID'] );
@@ -210,7 +211,7 @@ class GFBluePay {
 		//If first transaction was successful, move on
 		if( $authStatus == '1' && !empty( $transID ) ){
 
-			self::log_debug("Credit card approved.");
+			self::log_debug("ACH approved.");
 
 			self::$transaction_response = array(
 				"auth_transaction_id"   => (string)$authorize->getTransId(),
@@ -249,8 +250,8 @@ class GFBluePay {
 		self::log_debug("Authorizing credit card...");
 
 		$authorize = new BluePayment($settings['account_id'], $settings['secret_key'], $settings['mode']);
-		$authorize->auth( $transaction['Amount'] );
-		//$authorize->sale( $transaction['Amount'] );
+		//$authorize->auth( $transaction['Amount'] );
+		$authorize->sale( $transaction['Amount'] );
 		$authorize->setCustInfo(
 			$transaction['card_number'],
 			$transaction['CardSecVal'],
@@ -264,9 +265,11 @@ class GFBluePay {
 			$transaction['countryCode'],
 			$transaction['CustomerPhone'],
 			$transaction['CustomerEmail'],
-			null,
-			null,
-			$transaction['address2']
+			$transaction['custom1'],
+			$transaction['custom2'],
+			$transaction['address2'],
+			$transaction['Memo']
+
 		);
 		$authorize->setOrderId( $transaction['OrderID'] );
 		$authorize->process();
@@ -288,8 +291,9 @@ class GFBluePay {
 				"auth_transaction_id"   => (string)$authorize->getTransId(),
 				"config"                => $config,
 				"auth_code"             => (string)$authCode,
+				"type"					=> 'Credit Card',
 				"amount"                => $form_data["amount"],
-				"setup_fee"             => $form_data["fee_amount"]
+				"setup_fee"             => $form_data["fee_amount"],
 			);
 
 			//passed validation
@@ -366,13 +370,9 @@ class GFBluePay {
 
 
 		//Capturing payment
-		if($config["meta"]["type"] == "product"){
-			$result = self::capture_product_payment($config, $entry, $form);
-		}elseif($config["meta"]["type"] == "product"){
-			$result = self::capture_product_payment($config, $entry, $form);
-		}
+		$result = self::capture_product_payment($config, $entry, $form);
 
-		//Updates entry, creates transaction and entry notes
+		//Updates entry, creates transaction and entry memo
 		$entry = self::update_entry($result, $entry, $config);
 
 		return $entry;
@@ -382,74 +382,19 @@ class GFBluePay {
 
 		self::log_debug("Capturing funds. Authorization transaction ID: " . self::$transaction_response["auth_transaction_id"] . " - Authorization code: " . self::$transaction_response["auth_code"]);
 
-
 		//Getting transaction
 		$form_data = self::get_form_data($form, $config);
 		$transaction = self::get_initial_transaction($form_data, $config, $entry["id"]);
-
 		$transaction = apply_filters("gform_blue_pay_transaction_pre_capture", $transaction, $form_data, $config, $form);
-
 		$save_entry_id = apply_filters("gform_blue_pay_save_entry_id", false, $form["id"]);
 
-		if($save_entry_id){
+		//Saving transaction ID
+		self::$transaction_response["transaction_id"] = (string)self::$transaction_response['auth_transaction_id'];
 
-			self::log_debug("Creating a new capture only transaction that will save the entry id as the invoice number.");
+		// set the result result
+		$result = array("is_success" => true, "error_code" => "", "error_message" => "");
 
-			//Capturing payment. Must do a captureOnly to save the entry ID. This will create a new capture transaction and leave behind the prior authorization transaction (that will then be voided)
-			$response = $transaction->captureOnly(self::$transaction_response["auth_code"]);
-
-			self::void_authorization_transaction($config);
-			//Voiding authorization transaction
-			$void_response = $transaction->void(self::$transaction_response["auth_transaction_id"]);
-
-			self::log_debug("Voiding authorization transaction - Transaction ID: " . self::$transaction_response["auth_transaction_id"] ." - Result: " . print_r($void_response, true));
-
-		}
-		elseif( self::$transaction_response['type'] == 'ACH' ){
-
-			self::log_debug("Capturing funds using prior authorization transaction. Authorization transaction ID: " . self::$transaction_response["auth_transaction_id"] . " - Authorization code: " . self::$transaction_response["auth_code"]);
-
-			$authStatus = '1';
-			$transID 	= self::$transaction_response["auth_transaction_id"];
-			$response = array(
-				'status'				=>	'1',
-				'auth_transaction_id'	=> $transID
-			);
-
-		}else{
-
-			self::log_debug("Capturing funds using prior authorization transaction. Authorization transaction ID: " . self::$transaction_response["auth_transaction_id"] . " - Authorization code: " . self::$transaction_response["auth_code"]);
-
-			//self::$transaction_response['auth_transaction_id']
-			$settings = self::get_api_settings( self::get_local_api_settings( $config ) );
-
-			$authorize = new BluePayment($settings['account_id'], $settings['secret_key'], $settings['mode']);
-			$authorize->capture( self::$transaction_response['auth_transaction_id'] );
-			$authorize->process();
-
-			$response = $authorize->getResponse();
-			$authCode 	= $authorize->getAuthCode();
-			$authStatus = $authorize->getStatus();
-			$transID 	= $authorize->getTransId();			
-
-		}
-
-		if( $authStatus == '1' && !empty( $transID ) )
-		{
-			//Saving transaction ID
-			self::$transaction_response["transaction_id"] = (string)$transID;
-
-			self::log_debug("Funds captured successfully. Transaction Id: {".(string)$transID."}");
-			$result = array("is_success" => true, "error_code" => "", "error_message" => "");
-		}
-		else{
-			self::log_error("Funds could not be captured. Response: ");
-			self::log_error(print_r($response, true));
-
-			$result = array("is_success" => false, "error_code" => $authStatus, "error_message" => $authorize->getMessage() );
-		}
-
-		do_action("gform_blue_pay_post_capture", $result["is_success"], $form_data["amount"], $entry, $form, $config, $response);
+		do_action("gform_blue_pay_post_capture", $result["is_success"], $form_data["amount"], $entry, $form, $config, self::$transaction_response);
 		return $result;
 	}
 
@@ -464,7 +409,11 @@ class GFBluePay {
 		if($result["is_success"]){
 
 			$entry["payment_amount"] = self::$transaction_response["amount"];
-			$entry["payment_status"] = $config["meta"]["type"] == "product" ? "Approved" : "Active";
+			if( self::$transaction_response['type'] == 'ACH'){
+				$entry["payment_status"] = $config["meta"]["type"] == "product" ? "Pending" : "Active";
+			}else{
+				$entry["payment_status"] = $config["meta"]["type"] == "product" ? "Approved" : "Active";
+			}
 			$entry["payment_date"] = gmdate("Y-m-d H:i:s");
 
 			if($config["meta"]["type"] == "product"){
@@ -512,6 +461,9 @@ class GFBluePay {
 		$transaction['zip'] = $form_data["zip"];
 		$transaction['countryCode'] = convert_country($form_data["country"]);
 		$transaction['OrderID'] = empty($invoice_number) ? uniqid() : $invoice_number;
+		$transaction['custom1'] = $form_data["custom1"];
+		$transaction['custom2'] = $form_data["custom2"];
+		$transaction['Memo'] = $form_data["memo"];
 
 		return $transaction;
 	}
@@ -2154,6 +2106,9 @@ class GFBluePay {
 		$form_data["zip"] = rgpost('input_'. str_replace(".", "_",$config["meta"]["customer_fields"]["zip"]));
 		$form_data["country"] = rgpost('input_'. str_replace(".", "_",$config["meta"]["customer_fields"]["country"]));
 		$form_data["phone"] = rgpost('input_'. str_replace(".", "_",$config["meta"]["customer_fields"]["phone"]));
+		$form_data["custom1"] = rgpost('input_'. str_replace(".", "_",$config["meta"]["customer_fields"]["custom1"]));
+		$form_data["custom2"] = rgpost('input_'. str_replace(".", "_",$config["meta"]["customer_fields"]["custom2"]));
+		$form_data["memo"] = rgpost('input_'. str_replace(".", "_",$config["meta"]["customer_fields"]["memo"]));
 
 		$card_field = self::get_creditcard_field($form);
 		if( $card_field ){
@@ -2369,6 +2324,14 @@ class GFBluePay {
 				"label" =>__("Phone", "gravity-forms-bluepay"),
 			),
 			array(
+				"name" => "custom1" ,
+				"label" =>__("Custom 1", "gravity-forms-bluepay"),
+			),
+			array(
+				"name" => "custom2" ,
+				"label" =>__("Custom 2", "gravity-forms-bluepay"),
+			),
+			array(
 				"name" => "account_type" ,
 				"label" =>__("Account type", "gravity-forms-bluepay"),
 			),
@@ -2379,6 +2342,10 @@ class GFBluePay {
 			array(
 				"name" => "account_number" ,
 				"label" =>__("Account number", "gravity-forms-bluepay"),
+			),
+			array(
+				"name" => "memo" ,
+				"label" =>__("Memo", "gravity-forms-bluepay"),
 			),
 		);
 	}

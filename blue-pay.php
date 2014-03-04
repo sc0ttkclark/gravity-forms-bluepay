@@ -122,6 +122,8 @@ class GFBluePay {
 			//handling post submission.
 			add_filter('gform_validation',array("GFBluePay", "blue_pay_validation"), 10, 4);
 			add_action('gform_entry_post_save',array("GFBluePay", "blue_pay_commit_transaction"), 10, 2);
+
+			add_filter("gform_save_field_value", array("GFBluePay", "blue_pay_save_field_value"), 10, 4);
 		}
 	}
 
@@ -354,12 +356,31 @@ class GFBluePay {
 
 
 	//-------------------- SUBMISSION STEP -------------------------------------------------------
+	
+	public static function blue_pay_save_field_value($value, $lead, $field, $form){
+		
+		if(empty(self::$transaction_response))
+			return $value;
+
+
+		$config = self::$transaction_response["config"];
+
+		if($field['id'] == $config['meta']['customer_fields']['routing_number']){
+			return '######'.substr($value, 6);
+		}
+
+		if($field['id'] == $config['meta']['customer_fields']['account_number']){
+			return '######'.substr($value, 6);
+		}
+
+		return $value;
+
+	}
 
 	public static function blue_pay_commit_transaction($entry, $form){
-
+		
 		if(empty(self::$transaction_response))
 			return $entry;
-
 
 		$config = self::$transaction_response["config"];
 
@@ -368,13 +389,11 @@ class GFBluePay {
 		gform_update_meta($entry["id"], "blue_pay_feed_id", $config["id"]);
 		gform_update_meta($entry["id"], "blue_pay_auth_code", self::$transaction_response["auth_code"]);
 
-
 		//Capturing payment
 		$result = self::capture_product_payment($config, $entry, $form);
 
 		//Updates entry, creates transaction and entry memo
 		$entry = self::update_entry($result, $entry, $config);
-
 		return $entry;
 	}
 

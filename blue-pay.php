@@ -202,9 +202,10 @@ class GFBluePay {
 			$transaction['countryCode'],
 			$transaction['CustomerPhone'],
 			$transaction['CustomerEmail'],
-			null,
-			null,
-			$transaction['address2']
+			$transaction['custom_id1'],
+			$transaction['custom_id2'],
+			$transaction['address2'],
+			$transaction['memo']
 		);
 
 		$authorize->setOrderId( $transaction['OrderID'] );
@@ -254,7 +255,6 @@ class GFBluePay {
 		$transaction = self::get_initial_transaction($form_data, $config);
 		$transaction = apply_filters("gform_blue_pay_transaction_pre_authorize", $transaction, $form_data, $config, $validation_result["form"]);
 
-
 		$settings = self::get_api_settings( self::get_local_api_settings( $config ) );
 
 		self::log_debug("Authorizing credit card...");
@@ -275,9 +275,10 @@ class GFBluePay {
 			$transaction['countryCode'],
 			$transaction['CustomerPhone'],
 			$transaction['CustomerEmail'],
-			null,
-			null,
-			$transaction['address2']
+			$transaction['custom_id1'],
+			$transaction['custom_id2'],
+			$transaction['address2'],
+			$transaction['memo']
 		);
 		$authorize->setOrderId( $transaction['OrderID'] );
 		$authorize->process();
@@ -562,6 +563,9 @@ class GFBluePay {
 		$transaction['zip'] = $form_data["zip"];
 		$transaction['countryCode'] = convert_country($form_data["country"]);
 		$transaction['OrderID'] = empty($invoice_number) ? uniqid() : $invoice_number;
+		$transaction['memo'] = $form_data['memo'];
+		$transaction['custom_id1'] = $form_data['custom_id1'];
+		$transaction['custom_id2'] = $form_data['custom_id2'];
 
 		return $transaction;
 	}
@@ -2251,6 +2255,9 @@ class GFBluePay {
 		$form_data["zip"] = rgpost('input_'. str_replace(".", "_",$config["meta"]["customer_fields"]["zip"]));
 		$form_data["country"] = rgpost('input_'. str_replace(".", "_",$config["meta"]["customer_fields"]["country"]));
 		$form_data["phone"] = rgpost('input_'. str_replace(".", "_",$config["meta"]["customer_fields"]["phone"]));
+		$form_data["memo"] = rgpost('input_'. str_replace(".", "_",$config["meta"]["customer_fields"]["memo"]));
+		$form_data["custom_id1"] = rgpost('input_'. str_replace(".", "_",$config["meta"]["customer_fields"]["custom_id1"]));
+		$form_data["custom_id2"] = rgpost('input_'. str_replace(".", "_",$config["meta"]["customer_fields"]["custom_id2"]));
 
 		$card_field = self::get_creditcard_field($form);
 		if( $card_field && rgpost("input_{$card_field["id"]}_1") && rgpost("input_{$card_field["id"]}_2") && rgpost("input_{$card_field["id"]}_3") && rgpost("input_{$card_field["id"]}_4") ){
@@ -2354,7 +2361,7 @@ class GFBluePay {
 		// delete lead meta data
 		global $wpdb;
 		$table_name = RGFormsModel::get_lead_meta_table_name();
-		$wpdb->query($wpdb->prepare("DELETE FROM $table_name WHERE meta_key in ('subscription_regular_amount','subscription_trial_duration','subscription_payment_count','subscription_payment_date')"));
+		$wpdb->query("DELETE FROM {$table_name} WHERE meta_key in ('subscription_regular_amount','subscription_trial_duration','subscription_payment_count','subscription_payment_date')");
 
 	}
 
@@ -2476,6 +2483,18 @@ class GFBluePay {
 			array(
 				"name" => "account_number" ,
 				"label" =>__("Account number", "gravity-forms-bluepay"),
+			),
+			array(
+				"name" => "memo" ,
+				"label" =>__("Memo/Comments", "gravity-forms-bluepay"),
+			),
+			array(
+				"name" => "custom_id1" ,
+				"label" =>__("Custom ID 1", "gravity-forms-bluepay"),
+			),
+			array(
+				"name" => "custom_id2" ,
+				"label" =>__("Custom ID 2", "gravity-forms-bluepay"),
 			),
 		);
 	}

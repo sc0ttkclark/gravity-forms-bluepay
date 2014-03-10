@@ -112,7 +112,7 @@ class GFBluePay {
 					add_filter("gform_currency_disabled", "__return_true");
 				}
 			else if(RGForms::get("page") == "gf_entries"){
-					
+
 				}
 		}
 		else{
@@ -122,7 +122,14 @@ class GFBluePay {
 			//handling post submission.
 			add_filter('gform_validation',array("GFBluePay", "blue_pay_validation"), 10, 4);
 			add_action('gform_entry_post_save',array("GFBluePay", "blue_pay_commit_transaction"), 10, 2);
+
+			//handle hashing ACH
+			add_filter("gform_save_field_value", array("GFBluePay", "blue_pay_save_field_value"), 10, 4);
 		}
+	}
+
+	public static function get_transaction_response () {
+		return self::$transaction_response;
 	}
 
 
@@ -139,7 +146,7 @@ class GFBluePay {
 		//getting submitted data from fields
 		$form_data = self::get_form_data($form, $config);
 		$initial_payment_amount = $form_data["amount"] + absint(rgar($form_data,"fee_amount"));
-		
+
 		//don't process payment if initial payment is 0, but act as if the transaction was successful
 		if($initial_payment_amount == 0){
 
@@ -147,17 +154,21 @@ class GFBluePay {
 
 			self::process_free_product($form);
 		}
-		elseif(self::get_creditcard_field($form)){
+		else {
+			$card_field = self::get_creditcard_field($form);
 
-			self::log_debug("Initial payment of {$initial_payment_amount}. Credit card authorization required.");
+			if($card_field && rgpost("input_{$card_field["id"]}_1") && rgpost("input_{$card_field["id"]}_2") && rgpost("input_{$card_field["id"]}_3") && rgpost("input_{$card_field["id"]}_5") ){
 
-			//authorizing credit card and setting self::$transaction_response variable
-			$validation_result = self::authorize_credit_card($form_data, $config, $validation_result);
-		}else{
-			self::log_debug("Initial payment of {$initial_payment_amount}. ACH authorization required.");
+				self::log_debug("Initial payment of {$initial_payment_amount}. Credit card authorization required.");
 
-			//authorizing credit card and setting self::$transaction_response variable
-			$validation_result = self::authorize_ach($form_data, $config, $validation_result);
+				//authorizing credit card and setting self::$transaction_response variable
+				$validation_result = self::authorize_credit_card($form_data, $config, $validation_result);
+			}else{
+				self::log_debug("Initial payment of {$initial_payment_amount}. ACH authorization required.");
+
+				//authorizing credit card and setting self::$transaction_response variable
+				$validation_result = self::authorize_ach($form_data, $config, $validation_result);
+			}
 		}
 
 		return $validation_result;
@@ -169,8 +180,8 @@ class GFBluePay {
 
 		$transaction = self::get_initial_transaction($form_data, $config);
 		$transaction = apply_filters("gform_blue_pay_transaction_pre_authorize", $transaction, $form_data, $config, $validation_result["form"]);
-		
-		
+
+
 		$settings = self::get_api_settings( self::get_local_api_settings( $config ) );
 
 		self::log_debug("Authorizing ACH...");
@@ -230,7 +241,7 @@ class GFBluePay {
 			self::log_error(print_r($response, true));
 
 			//authorization was not succesfull. failed validation
-			$validation_result = self::set_validation_result($validation_result, $_POST, array('code' => $authStatus, 'message' => $authorize->getMessage() ) );
+			$validation_result = self::set_validation_result($validation_result, $_POST, array('code' => $authStatus, 'message' => $authorize->getMessage() ), 'ach' );
 		}
 
 		return $validation_result;
@@ -242,8 +253,8 @@ class GFBluePay {
 
 		$transaction = self::get_initial_transaction($form_data, $config);
 		$transaction = apply_filters("gform_blue_pay_transaction_pre_authorize", $transaction, $form_data, $config, $validation_result["form"]);
-		
-		
+
+
 		$settings = self::get_api_settings( self::get_local_api_settings( $config ) );
 
 		self::log_debug("Authorizing credit card...");
@@ -301,7 +312,7 @@ class GFBluePay {
 			self::log_error(print_r($response, true));
 
 			//authorization was not succesfull. failed validation
-			$validation_result = self::set_validation_result($validation_result, $_POST, array('code' => $authStatus, 'message' => $authorize->getMessage() ) );
+			$validation_result = self::set_validation_result($validation_result, $_POST, array('code' => $authStatus, 'message' => $authorize->getMessage() ), 'creditcard' );
 		}
 
 		return $validation_result;
@@ -322,34 +333,73 @@ class GFBluePay {
 		}
 	}
 
-	private static function set_validation_result($validation_result,$post,$response){
+	private static function set_validation_result($validation_result,$post,$response,$mode = 'creditcard'){
+
+		$ach_field = self::get_ach_field($validation_result["form"]);
 
 		$message = (string)$response['message'];
 		$code = (string)$response['code'];
 
 		$message = "<!-- Error: " . $code . " -->" . $message;
 
-		$credit_card_page = 0;
+		$field_page = 0;
+
 		foreach($validation_result["form"]["fields"] as &$field)
 		{
-			if($field["type"] == "creditcard")
+			if('creditcard' == $mode && $field["type"] == "creditcard")
 			{
 				$field["failed_validation"] = true;
 				$field["validation_message"] = $message;
-				$credit_card_page = $field["pageNumber"];
+				$field_page = $field["pageNumber"];
 				break;
 			}
-
+			elseif('ach' == $mode) {
+				if ( false !== strpos( $message, 'routing' ) ) {
+					if ( $field["id"] == $ach_field[ 'routing_number' ][ 'id' ] ) {
+						$field["failed_validation"] = true;
+						$field["validation_message"] = $message;
+						$field_page = $field["pageNumber"];
+						break;
+					}
+				}
+				elseif ( $field["id"] == $ach_field[ 'account_number' ][ 'id' ] ) {
+					$field["failed_validation"] = true;
+					$field["validation_message"] = $message;
+					$field_page = $field["pageNumber"];
+					break;
+				}
+			}
 		}
+
 		$validation_result["is_valid"] = false;
 
-		GFFormDisplay::set_current_page($validation_result["form"]["id"], $credit_card_page);
+		GFFormDisplay::set_current_page($validation_result["form"]["id"], $field_page);
 
 		return $validation_result;
 	}
 
 
 	//-------------------- SUBMISSION STEP -------------------------------------------------------
+
+	public static function blue_pay_save_field_value($value, $lead, $field, $form){
+
+		if(empty(self::$transaction_response))
+			return $value;
+
+
+		$config = self::$transaction_response["config"];
+
+		if($field['id'] == $config['meta']['customer_fields']['routing_number']){
+			return '######'.substr($value, 6);
+		}
+
+		if($field['id'] == $config['meta']['customer_fields']['account_number']){
+			return '######'.substr($value, 6);
+		}
+
+		return $value;
+
+	}
 
 	public static function blue_pay_commit_transaction($entry, $form){
 
@@ -430,7 +480,7 @@ class GFBluePay {
 			$response = $authorize->getResponse();
 			$authCode 	= $authorize->getAuthCode();
 			$authStatus = $authorize->getStatus();
-			$transID 	= $authorize->getTransId();			
+			$transID 	= $authorize->getTransId();
 
 		}
 
@@ -470,7 +520,7 @@ class GFBluePay {
 			if($config["meta"]["type"] == "product"){
 				GFBluePayData::insert_transaction($entry["id"], "payment", $entry["transaction_id"], $entry["transaction_id"], $entry["payment_amount"]);
 			}
-			
+
 		}
 		else{
 			$entry["payment_status"] = "Failed";
@@ -490,7 +540,7 @@ class GFBluePay {
 
 		$transaction['Amount'] = number_format($form_data["amount"], 2);
 
-		if( isset( $transaction['card_number'] ) ){
+		if( isset( $form_data['card_number'] ) ){
 			$transaction['card_number'] = $form_data["card_number"];
 			$exp_date = str_pad($form_data["expiration_date"][0], 2, "0", STR_PAD_LEFT) . substr($form_data["expiration_date"][1], -2);
 			$transaction['Exp'] = $exp_date;
@@ -841,7 +891,7 @@ class GFBluePay {
                 <tr>
                     <th scope="row" nowrap="nowrap"><label for="gf_blue_pay_account_id"><?php _e("Account ID", "gravity-forms-bluepay"); ?></label> </th>
                     <td width="88%">
-                        <input class="size-1" id="gf_blue_pay_account_id" name="gf_blue_pay_account_id" value="<?php echo esc_attr(rgar($settings,"account_id")) ?>" />                        
+                        <input class="size-1" id="gf_blue_pay_account_id" name="gf_blue_pay_account_id" value="<?php echo esc_attr(rgar($settings,"account_id")) ?>" />
                     </td>
                 </tr>
                 <tr>
@@ -1790,7 +1840,7 @@ class GFBluePay {
                     jQuery("#blue_pay_wait").hide();
                     return;
                 }
-                
+
 
                 jQuery(".blue_pay_field_container").hide();
                 jQuery("#blue_pay_customer_fields").html(customer_fields);
@@ -2037,6 +2087,38 @@ class GFBluePay {
 		return empty($fields) ? false : $fields[0];
 	}
 
+	public static function get_ach_field($form){
+		$config = self::get_config($form);
+
+		$fields = false;
+
+		if ( $config && $config["meta"]["customer_fields"]["account_type"] && $config["meta"]["customer_fields"]["account_number"] && $config["meta"]["customer_fields"]["routing_number"] ) {
+			$fields = array(
+				'account_type' => false,
+				'routing_number' => false,
+				'account_number' => false
+			);
+
+			foreach ( $form[ 'fields' ] as $field ) {
+				if ( empty( $fields[ 'account_type' ] ) && $config["meta"]["customer_fields"]["account_type"] == $field[ 'id' ] ) {
+					$fields[ 'account_type' ] = $field;
+				}
+				elseif ( empty( $fields[ 'routing_number' ] ) && $config["meta"]["customer_fields"]["routing_number"] == $field[ 'id' ] ) {
+					$fields[ 'routing_number' ] = $field;
+				}
+				elseif ( empty( $fields[ 'account_number' ] ) && $config["meta"]["customer_fields"]["account_number"] == $field[ 'id' ] ) {
+					$fields[ 'account_number' ] = $field;
+				}
+
+				if ( !empty( $fields[ 'account_type' ] ) && !empty( $fields[ 'routing_number' ] ) && !empty( $fields[ 'account_number' ] ) ) {
+					break;
+				}
+			}
+		}
+
+		return $fields;
+	}
+
 	private static function is_ready_for_capture($validation_result){
 
 		//if form has already failed validation or this is not the last page, abort
@@ -2050,10 +2132,25 @@ class GFBluePay {
 
 		//making sure credit card field is visible
 		$creditcard_field = self::get_creditcard_field($validation_result["form"]);
-		if(RGFormsModel::is_field_hidden($validation_result["form"], $creditcard_field, array()))
-			return false;
+		$ach_field = self::get_ach_field($validation_result["form"]);
 
-		return $config;
+		$valid = false;
+
+		if($creditcard_field && !RGFormsModel::is_field_hidden($validation_result["form"], $creditcard_field, array()))
+			$valid = true;
+
+		if($ach_field && !RGFormsModel::is_field_hidden($validation_result["form"], $ach_field[ 'account_type' ], array())
+			 && !RGFormsModel::is_field_hidden($validation_result["form"], $ach_field[ 'routing_number' ], array())
+			 && !RGFormsModel::is_field_hidden($validation_result["form"], $ach_field[ 'account_number' ], array())) {
+			$valid = true;
+		}
+
+		if ( $valid ) {
+			return $config;
+		}
+
+		return false;
+
 	}
 
 	private static function is_last_page($form){
@@ -2156,7 +2253,7 @@ class GFBluePay {
 		$form_data["phone"] = rgpost('input_'. str_replace(".", "_",$config["meta"]["customer_fields"]["phone"]));
 
 		$card_field = self::get_creditcard_field($form);
-		if( $card_field ){
+		if( $card_field && rgpost("input_{$card_field["id"]}_1") && rgpost("input_{$card_field["id"]}_2") && rgpost("input_{$card_field["id"]}_3") && rgpost("input_{$card_field["id"]}_4") ){
 			$form_data["card_number"] = rgpost("input_{$card_field["id"]}_1");
 			$form_data["expiration_date"] = rgpost("input_{$card_field["id"]}_2");
 			$form_data["security_code"] = rgpost("input_{$card_field["id"]}_3");

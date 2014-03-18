@@ -539,7 +539,7 @@ class GFBluePay {
 		// processing products and services single transaction and first payment.
 		$transaction = array();
 
-		$transaction['Amount'] = number_format($form_data["amount"], 2);
+		$transaction['Amount'] = GFCommon::to_number($form_data["amount"]);
 
 		if( isset( $form_data['card_number'] ) ){
 			$transaction['card_number'] = $form_data["card_number"];

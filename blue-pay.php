@@ -29,6 +29,7 @@ add_action('init',  array('GFBluePay', 'init'));
 
 //limits currency to US Dollars
 add_filter("gform_currency", create_function("","return 'USD';"));
+add_action("ach_cron", array("GFBluePay", "ach_update"));
 
 register_activation_hook( __FILE__, array("GFBluePay", "add_permissions"));
 
@@ -50,6 +51,9 @@ class GFBluePay {
 
 		//runs the setup when version changes
 		self::setup();
+
+		// Testing cron update
+		//self::ach_update();
 
 		//supports logging
 		add_filter("gform_logging_supported", array("GFBluePay", "set_logging_supported"));
@@ -516,6 +520,13 @@ class GFBluePay {
 
 			$entry["payment_amount"] = self::$transaction_response["amount"];
 			$entry["payment_status"] = $config["meta"]["type"] == "product" ? "Approved" : "Active";
+			// Check if its ACH - set to pending
+			if(!empty($config["meta"]["customer_fields"]["account_type"]) && !empty($config["meta"]["customer_fields"]["routing_number"]) && !empty($config["meta"]["customer_fields"]["account_number"])){
+				if( $entry["payment_status"] == "Approved" ){
+					$entry["payment_status"] = 'Pending';
+				}
+			}
+
 			$entry["payment_date"] = gmdate("Y-m-d H:i:s");
 
 			if($config["meta"]["type"] == "product"){
@@ -542,6 +553,7 @@ class GFBluePay {
 		$transaction['Amount'] = GFCommon::to_number($form_data["amount"]);
 
 		if( isset( $form_data['card_number'] ) ){
+			$transaction['account_type'] = 'C';
 			$transaction['card_number'] = $form_data["card_number"];
 			$exp_date = str_pad($form_data["expiration_date"][0], 2, "0", STR_PAD_LEFT) . substr($form_data["expiration_date"][1], -2);
 			$transaction['Exp'] = $exp_date;
@@ -574,10 +586,98 @@ class GFBluePay {
 	//-------------------- CRON -------------------------------------------------------
 
 	public static function setup_cron(){
-		if(!wp_next_scheduled("renewal_cron"))
-			wp_schedule_event(time(), "daily", "renewal_cron");
+		if(!wp_next_scheduled("ach_cron"))
+			wp_schedule_event(time(), "daily", "ach_cron");
 	}
 
+	public static function ach_update(){
+
+
+		if(!self::is_gravityforms_supported())
+			return;
+
+		//loading data lib
+		require_once(self::get_base_path() . "/data.php");
+
+		// loading blue pay api and getting credentials
+		self::include_api();
+
+		// getting all feeds
+		$bp_feeds = GFBluePayData::get_feeds();
+
+		foreach($bp_feeds as $feed){
+
+			// check the feed is ACH
+			if(!empty($feed["meta"]["customer_fields"]["account_type"]) && !empty($feed["meta"]["customer_fields"]["routing_number"]) && !empty($feed["meta"]["customer_fields"]["account_number"]))
+			{
+				$form_id = $feed["form_id"];
+
+				// getting billig cycle information
+				$billing_cycle = $feed["meta"]["billing_cycle"];
+
+				$querytime = strtotime(gmdate("Y-m-d") . "-" . $billing_cycle);
+				$querydate = gmdate("Y-m-d", $querytime) . " 00:00:00";
+
+				// finding leads with a pending statuc
+				//gform_update_meta($entry["id"], "blue_pay_auth_code", self::$transaction_response["auth_code"]);
+				global $wpdb;
+
+				$query = "SELECT l.id, l.form_id, l.payment_date, l.transaction_id, m.meta_value as auth_code
+                                                FROM {$wpdb->prefix}rg_lead l
+                                                INNER JOIN {$wpdb->prefix}rg_lead_meta m ON l.id = m.lead_id
+                                                WHERE l.form_id={$form_id}
+                                                AND payment_status = 'Pending'
+                                                AND meta_key = 'blue_pay_auth_code'
+                                                AND meta_value = ''";
+
+				$results = $wpdb->get_results( $query );
+
+				foreach($results as $result){
+
+					$config = GFBluePayData::get_feed($result->form_id);
+
+					$settings = self::get_api_settings( self::get_local_api_settings( $config ) );
+
+					$report = new BluePayment($settings['account_id'], $settings['secret_key'], $settings['mode']);
+					$report->get_report($result->payment_date, date('Y-m-d'), $result->transaction_id);
+
+					$settleId	= $report->getSettlementId();
+					$authStatus = $report->getStatus();
+					$message 	= $report->getMessage();
+
+					/* STATUS */
+					if( !empty($authStatus)){
+
+						//Getting entry
+						$entry_id = $result->id;
+						$entry = RGFormsModel::get_lead($entry_id);
+
+						switch ($authStatus){
+							case 1:
+								// Update
+								$entry["payment_status"] = $message;
+								$entry["payment_method"] = 'ACH';
+								RGFormsModel::update_lead($entry);
+								gform_update_meta($entry_id, "blue_pay_auth_code", $settleId);
+								break;
+							case 2:
+								// update - not found
+								$entry["payment_status"] = $message;
+								$entry["payment_method"] = 'ACH';
+								RGFormsModel::update_lead($entry);
+								RGFormsModel::add_note($entry["id"], 0, "System", $message);
+
+						}
+
+					}
+
+
+				}
+
+			}
+		}
+
+	}
 
 	public static function check_update($update_plugins_option){
 
@@ -2260,7 +2360,7 @@ class GFBluePay {
 		$form_data["custom_id2"] = rgpost('input_'. str_replace(".", "_",$config["meta"]["customer_fields"]["custom_id2"]));
 
 		$card_field = self::get_creditcard_field($form);
-		if( $card_field && rgpost("input_{$card_field["id"]}_1") && rgpost("input_{$card_field["id"]}_2") && rgpost("input_{$card_field["id"]}_3") && rgpost("input_{$card_field["id"]}_4") ){
+		if( $card_field && rgpost("input_{$card_field["id"]}_1") && rgpost("input_{$card_field["id"]}_2") && rgpost("input_{$card_field["id"]}_3") && rgpost("input_{$card_field["id"]}_5") ){
 			$form_data["card_number"] = rgpost("input_{$card_field["id"]}_1");
 			$form_data["expiration_date"] = rgpost("input_{$card_field["id"]}_2");
 			$form_data["security_code"] = rgpost("input_{$card_field["id"]}_3");

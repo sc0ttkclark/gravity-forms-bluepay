@@ -3,7 +3,7 @@
  * class BluePayment
  * -Added additional fields that were not addressed by API Phone, Email, CustomID 1, Custom ID 2 (Bobby Bush - InDesign Firm, Inc.)
  * -Added function for the processing of ACH Transactions  (Bobby Bush - InDesign Firm, Inc.)
- * 
+ *
  *  Module Extended by
  *  The InDesign Firm, Inc.
  *  E-mail: support@indesignfirm.com
@@ -11,15 +11,15 @@
  *  Address:  www.indesignfirm.com
  *
  * Written By:
- * Peter Finley 
+ * Peter Finley
  * peter.finley@gmail.com
  * 630.730.1178
  * (based on code by Chris Jansen)
  *
  * This class provides the ability to perform credit
  * card transactions through BluePay's v2.0 interface.
- * This is done by performing a POST (using PHP's 
- * CURL wrappers), then recieving and parsing the 
+ * This is done by performing a POST (using PHP's
+ * CURL wrappers), then recieving and parsing the
  * response.
  *
  * A few notes:
@@ -28,23 +28,23 @@
  *
  * - PAYMENT_TYPE of ACH is not dealt with at all ( NOW IT IS)  :)
  *
- * - Rebilling could be further developed (i.e. 
- * automatically format parameters better, such 
- * as to be able to use UNIX timestamp for the 
+ * - Rebilling could be further developed (i.e.
+ * automatically format parameters better, such
+ * as to be able to use UNIX timestamp for the
  * first date parameter, etc.)
  *
- * - Level 2 qualification is in place, but I'm not 
- * really sure how it is used, so did not do any 
+ * - Level 2 qualification is in place, but I'm not
+ * really sure how it is used, so did not do any
  * more than allow for the parameters to be set.
  *
  * - this class has not been fully tested
  *
- * - there is little to no parameter error 
- * checking (i.e. sending a NAME1 of over 16 
- * characters is allowed, but will yeild an 'E' 
+ * - there is little to no parameter error
+ * checking (i.e. sending a NAME1 of over 16
+ * characters is allowed, but will yeild an 'E'
  * (error) STATUS response)
  *
- * - this class is written in PHP 5 (and is _not_ 
+ * - this class is written in PHP 5 (and is _not_
  * compatable with any previous versions)
  */
 class BluePayment {
@@ -65,7 +65,7 @@ class BluePayment {
  	MASTER_ID is set) */
  protected $account; // PAYMENT_ACCOUNT (i.e. credit card number)
  protected $cvv2; // CARD_CVVS
- protected $expire; // CARD_EXPIRE 
+ protected $expire; // CARD_EXPIRE
  protected $ssn; // SSN (Only required for ACH)
  protected $birthdate; // BIRTHDATE (only required for ACH)
  protected $custId; // CUST_ID (only required for ACH)
@@ -116,6 +116,7 @@ class BluePayment {
  protected $cvv2Resp;
  protected $authCode;
  protected $message;
+ protected $settlement_id;
  protected $rebid;
 
 
@@ -137,11 +138,11 @@ class BluePayment {
  /***
  * __construct()
  *
- * Constructor method, sets the account, secret key, 
- * and the mode properties. These will default to 
+ * Constructor method, sets the account, secret key,
+ * and the mode properties. These will default to
  * the constant values if not specified.
  */
- public function __construct($account = self::ACCOUNT_ID, 
+ public function __construct($account = self::ACCOUNT_ID,
  	$key = self::SECRET_KEY, $mode = self::MODE) {
 
  	$this->accountId = $account;
@@ -220,7 +221,7 @@ class BluePayment {
  *
  * Adds additional level 2 qualification parameters.
  */
- public function addLevel2Qual($orderId = null, $invoiceId = null, 
+ public function addLevel2Qual($orderId = null, $invoiceId = null,
  	$tip = null, $tax = null) {
 
  	$this->orderId = $orderId;
@@ -321,7 +322,7 @@ class BluePayment {
  *
  * Sets the customer specified info.
  */
- public function setCustACHInfo($routenum, $accntnum, $accttype, $name1, $name2, 
+ public function setCustACHInfo($routenum, $accntnum, $accttype, $name1, $name2,
  	$addr1, $city, $state, $zip, $country, $phone, $email, $customid1 = null, $customid2 = null,
  	$addr2 = null, $memo = null) {
 
@@ -348,7 +349,7 @@ class BluePayment {
  *
  * Sets the customer specified info.
  */
- public function setCustInfo($account, $cvv2, $expire, $name1, $name2, 
+ public function setCustInfo($account, $cvv2, $expire, $name1, $name2,
  	$addr1, $city, $state, $zip, $country, $phone, $email, $customid1 = null, $customid2 = null,
  	$addr2 = null, $memo = null) {
 
@@ -407,7 +408,7 @@ class BluePayment {
  */
  protected final function calcTPS() {
 
- 	$hashstr = $this->secretKey . $this->accountId . $this->transType . 
+ 	$hashstr = $this->secretKey . $this->accountId . $this->transType .
  	$this->amount . $this->masterId . $this->name1 . $this->account;
 
  	return bin2hex( md5($hashstr, true) );
@@ -416,8 +417,8 @@ class BluePayment {
  /***
  * processACH()
  *
- * Will first generate the tamper proof seal, then 
- * populate the POST query, then send it, and store 
+ * Will first generate the tamper proof seal, then
+ * populate the POST query, then send it, and store
  * the response, and finally parse the response.
  */
  public function processACH() {
@@ -482,7 +483,55 @@ $ch = curl_init();
 
 	 $this->response = curl_exec($ch);
 
-	 curl_close($ch); 
+	 curl_close($ch);
+
+	 /* parse the response */
+	 $this->parseResponse();
+	}
+
+
+ /***
+ * get_report()
+ *
+ */
+ public function get_report($start, $end, $id) {
+
+ 	/* calculate the tamper proof seal */
+    $tpsString = $this->secretKey . $this->accountId . $start . $end;
+    $tps = bin2hex(md5($tpsString, true));
+
+
+ 	$url = "https://secure.bluepay.com/interfaces/stq";
+
+ 	/* fill in the fields */
+ 	$fields = array (
+ 		'ACCOUNT_ID' => $this->accountId,
+ 		'USER_ID' => $this->userId,
+ 		'TAMPER_PROOF_SEAL' => $tps,
+ 		'TRANS_TYPE' => null,
+ 		'PAYMENT_TYPE' => null,
+ 		'MODE' => $this->mode,
+ 		'MASTER_ID' => $this->masterId,
+    	'REPORT_START_DATE' => $start,
+    	'REPORT_END_DATE' => $end,
+    	'id' => $id
+ 		);
+
+
+/* perform the transaction */
+$ch = curl_init();
+
+	 curl_setopt($ch, CURLOPT_URL, $url); // Set the URL
+	 curl_setopt($ch, CURLOPT_USERAGENT, "BluepayPHP SDK/2.0"); // Cosmetic
+	 curl_setopt($ch, CURLOPT_POST, 1); // Perform a POST
+	 // curl_setopt($ch, CURLOPT_CAINFO, "c:\\windows\\ca-bundle.crt"); // Name of the file to verify the server's cert against
+	 curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0); // Turns off verification of the SSL certificate.
+	 curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1); // If not set, curl prints output to the browser
+	 curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($fields));
+
+	 $this->response = curl_exec($ch);
+
+	 curl_close($ch);
 
 	 /* parse the response */
 	 $this->parseResponse();
@@ -492,8 +541,8 @@ $ch = curl_init();
  /***
  * process()
  *
- * Will first generate the tamper proof seal, then 
- * populate the POST query, then send it, and store 
+ * Will first generate the tamper proof seal, then
+ * populate the POST query, then send it, and store
  * the response, and finally parse the response.
  */
  public function process() {
@@ -551,9 +600,8 @@ $ch = curl_init();
  		'CUSTOMER_IP' => $_SERVER['REMOTE_ADDR']
  		);
 
-
-/* perform the transaction */
-$ch = curl_init();
+	/* perform the transaction */
+	$ch = curl_init();
 
 	 curl_setopt($ch, CURLOPT_URL, self::POST_URL); // Set the URL
 	 curl_setopt($ch, CURLOPT_USERAGENT, "BluepayPHP SDK/2.0"); // Cosmetic
@@ -565,7 +613,7 @@ $ch = curl_init();
 
 	 $this->response = curl_exec($ch);
 
-	 curl_close($ch); 
+	 curl_close($ch);
 
 	 /* parse the response */
 	 $this->parseResponse();
@@ -584,6 +632,32 @@ $ch = curl_init();
 
  	parse_str($this->response);
 
+ 	if(isset($NOT_FOUND)){
+ 		/* Status */
+ 		$this->status = 2;
+
+	 	/* MESSAGE */
+	 	$this->message = 'Not Found';
+
+ 		return;
+ 	}
+
+ 	// ACH Check
+ 	if(!empty($payment_type)){
+ 		if($payment_type == 'ACH'){
+
+ 	/* STATUS */
+		 	$this->status = $status;
+
+		 	/* MESSAGE */
+		 	$this->message = $message;
+
+		 	/* Settlement ID */
+		 	$this->settlement_id = $settlement_id;
+
+ 			return;
+ 		}
+ 	}
 
  	/* STATUS */
  	$this->status = $STATUS;
@@ -622,6 +696,7 @@ $ch = curl_init();
  public function getResponse() { return $this->response; }
  public function getTransId() { return $this->transId; }
  public function getStatus() { return $this->status; }
+ public function getSettlementId() { return $this->settlement_id; }
  public function getAvsResp() { return $this->avsResp; }
  public function getCvv2Resp() { return $this->cvv2Resp; }
  public function getAuthCode() { return $this->authCode; }

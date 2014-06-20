@@ -191,7 +191,13 @@ class GFBluePay {
 		self::log_debug("Authorizing ACH...");
 
 		$authorize = new BluePayment($settings['account_id'], $settings['secret_key'], $settings['mode']);
+
+		if ( 'auth' == $settings['transaction_mode'] ) {
+			$authorize->auth( $transaction['Amount'] );
+		}
+		else {
 		$authorize->sale( $transaction['Amount'] );
+		}
 
 		$authorize->setCustACHInfo(
 			$transaction['routing_number'],
@@ -264,8 +270,14 @@ class GFBluePay {
 		self::log_debug("Authorizing credit card...");
 
 		$authorize = new BluePayment($settings['account_id'], $settings['secret_key'], $settings['mode']);
+
+		if ( 'auth' == $settings['transaction_mode'] ) {
 		$authorize->auth( $transaction['Amount'] );
-		//$authorize->sale( $transaction['Amount'] );
+		}
+		else {
+			$authorize->sale( $transaction['Amount'] );
+		}
+
 		$authorize->setCustInfo(
 			$transaction['card_number'],
 			$transaction['CardSecVal'],
@@ -950,6 +962,7 @@ class GFBluePay {
 					"mode"             => rgpost("gf_blue_pay_mode"),
 					"account_id"         => rgpost("gf_blue_pay_account_id"),
 					"secret_key"         => rgpost("gf_blue_pay_secret_key"),
+					"transaction_mode" => rgpost("gf_blue_pay_transaction_mode"),
 					"mb_configured"    => rgpost("gf_mb_configured")
 				);
 
@@ -1002,6 +1015,16 @@ class GFBluePay {
                     <th scope="row" nowrap="nowrap"><label for="gf_blue_pay_secret_key"><?php _e("Secret Key", "gravity-forms-bluepay"); ?></label> </th>
                     <td width="88%">
                         <input class="size-1" id="gf_blue_pay_secret_key" name="gf_blue_pay_secret_key" value="<?php echo esc_attr(rgar($settings,"secret_key")) ?>" />
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row" nowrap="nowrap"><label for="gf_blue_pay_transaction_mode"><?php _e("Transaction Mode", "gravity-forms-bluepay"); ?></label> </th>
+                    <td width="88%">
+                        <input type="radio" name="gf_blue_transaction_mode" id="gf_blue_transaction_mode_sale" value="sale" <?php echo rgar($settings, 'transaction_mode') != "auth" ? "checked='checked'" : "" ?>/>
+                        <label class="inline" for="gf_blue_transaction_mode_sale"><?php _e("Sale", "gravity-forms-bluepay"); ?></label>
+                        &nbsp;&nbsp;&nbsp;
+                        <input type="radio" name="gf_blue_transaction_mode" id="gf_blue_transaction_mode_auth" value="auth" <?php echo rgar($settings, 'transaction_mode') == "auth" ? "checked='checked'" : "" ?>/>
+                        <label class="inline" for="gf_blue_transaction_mode_auth"><?php _e("Auth", "gravity-forms-bluepay"); ?></label>
                     </td>
                 </tr>
                 <?php
@@ -1086,8 +1109,9 @@ class GFBluePay {
 		$account_id = $custom_api_settings ? rgar($local_api_settings, "account_id") : rgar($settings, "account_id");
 		$secret_key = $custom_api_settings ? rgar($local_api_settings, "secret_key") : rgar($settings, "secret_key");
 		$mode = $custom_api_settings ? rgar($local_api_settings, "mode") : rgar($settings, "mode");
+		$transaction_mode = $custom_api_settings ? rgar($local_api_settings, "transaction_mode") : rgar($settings, "transaction_mode");
 
-		return array("account_id" => $account_id, "secret_key" => $secret_key, "mode" => $mode);
+		return array("account_id" => $account_id, "secret_key" => $secret_key, "mode" => $mode, "transaction_mode" => $transaction_mode);
 	}
 
 	private static function include_api(){
@@ -1578,6 +1602,7 @@ class GFBluePay {
 			$config["meta"]["api_mode"] = rgpost('gf_blue_pay_api_mode');
 			$config["meta"]["api_account_id"] = rgpost('gf_blue_pay_api_account_id');
 			$config["meta"]["api_secret_key"] = rgpost('gf_blue_pay_api_secret_key');
+			$config["meta"]["api_transaction_mode"] = rgpost('gf_blue_pay_api_transaction_mode');
 
 
 			//-----------------
@@ -1846,10 +1871,10 @@ class GFBluePay {
 
                     <div class="margin_vertical_10">
                         <label class="left_header" for="gf_blue_pay_api_mode"><?php _e("Mode", "gravity-forms-bluepay"); ?> <?php gform_tooltip("blue_pay_api_mode") ?></label>
-                        <input type="radio" name="gf_blue_pay_api_mode" value="LIVE" <?php echo rgar($config["meta"],"api_mode") != "TEST" ? "checked='checked'" : "" ?>/>
+                        <input type="radio" name="gf_blue_pay_api_mode" id="gf_blue_pay_api_mode_live" value="LIVE" <?php echo rgar($config["meta"],"api_mode") != "TEST" ? "checked='checked'" : "" ?>/>
                         <label class="inline" for="gf_blue_pay_api_mode_live"><?php _e("Live", "gravity-forms-bluepay"); ?></label>
                         &nbsp;&nbsp;&nbsp;
-                        <input type="radio" name="gf_blue_pay_api_mode" value="TEST" <?php echo rgar($config["meta"],"api_mode") == "TEST" ? "checked='checked'" : "" ?>/>
+                        <input type="radio" name="gf_blue_pay_api_mode" id="gf_blue_pay_api_mode_test" value="TEST" <?php echo rgar($config["meta"],"api_mode") == "TEST" ? "checked='checked'" : "" ?>/>
                         <label class="inline" for="gf_blue_pay_api_mode_test"><?php _e("Test", "gravity-forms-bluepay"); ?></label>
                     </div>
 
@@ -1861,6 +1886,15 @@ class GFBluePay {
                     <div class="margin_vertical_10">
                         <label class="left_header" for="gf_blue_pay_api_secret_key"><?php _e("Secret Key", "gravity-forms-bluepay"); ?> <?php gform_tooltip("blue_pay_api_secret_key") ?></label>
                         <input class="size-1" id="gf_blue_pay_api_secret_key" name="gf_blue_pay_api_secret_key" value="<?php echo rgar($config["meta"],"api_secret_key") ?>" />
+                    </div>
+
+                    <div class="margin_vertical_10">
+                        <label class="left_header" for="gf_blue_pay_api_transaction_mode"><?php _e("Transaction Mode", "gravity-forms-bluepay"); ?> <?php gform_tooltip("blue_pay_api_transaction_mode") ?></label>
+                        <input type="radio" name="gf_blue_pay_api_transaction_mode" id="gf_blue_pay_api_transaction_mode_sale" value="sale" <?php echo rgar($config["meta"],"api_transaction_mode") != "auth" ? "checked='checked'" : "" ?>/>
+                        <label class="inline" for="gf_blue_pay_api_transaction_mode_sale"><?php _e("Test", "gravity-forms-bluepay"); ?></label>
+                        &nbsp;&nbsp;&nbsp;
+                        <input type="radio" name="gf_blue_pay_api_transaction_mode" id="gf_blue_pay_api_transaction_mode_auth" value="auth" <?php echo rgar($config["meta"],"api_transaction_mode") == "auth" ? "checked='checked'" : "" ?>/>
+                        <label class="inline" for="gf_blue_pay_api_transaction_mode_auth"><?php _e("Live", "gravity-forms-bluepay"); ?></label>
                     </div>
 
                 </div>

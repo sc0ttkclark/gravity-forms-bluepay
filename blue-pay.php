@@ -232,7 +232,7 @@ class GFBluePay {
 		//If first transaction was successful, move on
 		if( $authStatus == '1' && !empty( $transID ) ){
 
-			self::log_debug("Credit card approved.");
+			self::log_debug("ACH approved.");
 
 			self::$transaction_response = array(
 				"auth_transaction_id"   => (string)$authorize->getTransId(),
@@ -960,8 +960,8 @@ class GFBluePay {
 				check_admin_referer("update", "gf_blue_pay_update");
 				$settings = array(
 					"mode"             => rgpost("gf_blue_pay_mode"),
-					"account_id"         => rgpost("gf_blue_pay_account_id"),
-					"secret_key"         => rgpost("gf_blue_pay_secret_key"),
+					"account_id"       => rgpost("gf_blue_pay_account_id"),
+					"secret_key"       => rgpost("gf_blue_pay_secret_key"),
 					"transaction_mode" => rgpost("gf_blue_pay_transaction_mode"),
 					"mb_configured"    => rgpost("gf_mb_configured")
 				);

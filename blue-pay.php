@@ -238,7 +238,7 @@ class GFBluePay {
 				"auth_transaction_id"   => (string)$authorize->getTransId(),
 				"config"                => $config,
 				"auth_code"             => (string)$authCode,
-				"type"					=> 'ACH',
+				"type"                  => 'ACH',
 				"amount"                => $form_data["amount"],
 				"setup_fee"             => $form_data["fee_amount"]
 			);
@@ -316,6 +316,7 @@ class GFBluePay {
 				"auth_transaction_id"   => (string)$authorize->getTransId(),
 				"config"                => $config,
 				"auth_code"             => (string)$authCode,
+				"type"                  => 'CREDIT_CARD',
 				"amount"                => $form_data["amount"],
 				"setup_fee"             => $form_data["fee_amount"]
 			);

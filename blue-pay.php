@@ -156,7 +156,7 @@ class GFBluePay {
 
 			self::log_debug("Amount is 0. No need to authorize payment, but act as if transaction was successful");
 
-			self::process_free_product($form);
+			self::process_free_product($form, $config, $validation_result);
 		}
 		else {
 			$card_field = self::get_creditcard_field($form);
@@ -336,7 +336,7 @@ class GFBluePay {
 		return $validation_result;
 	}
 
-	private static function process_free_product($form){
+	private static function process_free_product($form, $config, $validation_result){
 
 
 		//blank out credit card field if this is the last page
@@ -347,7 +347,14 @@ class GFBluePay {
 
 		//creating dummy transaction response if there are any visible product fields in the form
 		if(self::has_visible_products($form)){
-			self::$transaction_response = array("auth_transaction_id" => "N/A", "amount" => 0);
+			self::$transaction_response = array(
+				"auth_transaction_id"   => 'N/A',
+				"config"                => $config,
+				"auth_code"             => null,
+				"type"                  => 'FREE',
+				"amount"                => 0,
+				"setup_fee"             => 0
+			);
 		}
 	}
 

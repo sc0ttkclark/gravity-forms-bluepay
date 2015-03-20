@@ -572,7 +572,7 @@ class GFBluePay {
 			GFFormsModel::add_note($entry["id"], 0, "System", $message);
 		}
 
-		GFAPI::update_entry()($entry);
+		GFAPI::update_entry($entry);
 
 		return $entry;
 	}
@@ -689,14 +689,14 @@ class GFBluePay {
 								// Update
 								$entry["payment_status"] = $message;
 								$entry["payment_method"] = 'ACH';
-								GFAPI::update_entry()($entry);
+								GFAPI::update_entry($entry);
 								gform_update_meta($entry_id, "blue_pay_auth_code", $settleId);
 								break;
 							case 2:
 								// update - not found
 								$entry["payment_status"] = $message;
 								$entry["payment_method"] = 'ACH';
-								GFAPI::update_entry()($entry);
+								GFAPI::update_entry($entry);
 								RGFormsModel::add_note($entry["id"], 0, "System", $message);
 
 						}

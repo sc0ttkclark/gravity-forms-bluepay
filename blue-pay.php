@@ -2904,5 +2904,3 @@ if(!function_exists("convert_country")){
 		}
 	}
 }
-
-?>

@@ -156,7 +156,7 @@ class GFBluePay {
 
 			self::log_debug("Amount is 0. No need to authorize payment, but act as if transaction was successful");
 
-			self::process_free_product($form);
+			self::process_free_product($form, $config, $validation_result);
 		}
 		else {
 			$card_field = self::get_creditcard_field($form);
@@ -238,7 +238,7 @@ class GFBluePay {
 				"auth_transaction_id"   => (string)$authorize->getTransId(),
 				"config"                => $config,
 				"auth_code"             => (string)$authCode,
-				"type"					=> 'ACH',
+				"type"                  => 'ACH',
 				"amount"                => $form_data["amount"],
 				"setup_fee"             => $form_data["fee_amount"]
 			);
@@ -316,6 +316,7 @@ class GFBluePay {
 				"auth_transaction_id"   => (string)$authorize->getTransId(),
 				"config"                => $config,
 				"auth_code"             => (string)$authCode,
+				"type"                  => 'CREDIT_CARD',
 				"amount"                => $form_data["amount"],
 				"setup_fee"             => $form_data["fee_amount"]
 			);
@@ -335,7 +336,7 @@ class GFBluePay {
 		return $validation_result;
 	}
 
-	private static function process_free_product($form){
+	private static function process_free_product($form, $config, $validation_result){
 
 
 		//blank out credit card field if this is the last page
@@ -346,7 +347,14 @@ class GFBluePay {
 
 		//creating dummy transaction response if there are any visible product fields in the form
 		if(self::has_visible_products($form)){
-			self::$transaction_response = array("auth_transaction_id" => "N/A", "amount" => 0);
+			self::$transaction_response = array(
+				"auth_transaction_id"   => 'N/A',
+				"config"                => $config,
+				"auth_code"             => null,
+				"type"                  => 'FREE',
+				"amount"                => 0,
+				"setup_fee"             => 0
+			);
 		}
 	}
 
@@ -457,6 +465,11 @@ class GFBluePay {
 		$transaction = apply_filters("gform_blue_pay_transaction_pre_capture", $transaction, $form_data, $config, $form);
 
 		$save_entry_id = apply_filters("gform_blue_pay_save_entry_id", false, $form["id"]);
+		
+		$auth_status = '0';
+		$transID = 0;
+		$response = false;
+		$authorize = false;
 
 		if($save_entry_id){
 
@@ -472,32 +485,34 @@ class GFBluePay {
 			self::log_debug("Voiding authorization transaction - Transaction ID: " . self::$transaction_response["auth_transaction_id"] ." - Result: " . print_r($void_response, true));
 
 		}
-		elseif( self::$transaction_response['type'] == 'ACH' ){
-
-			self::log_debug("Capturing funds using prior authorization transaction. Authorization transaction ID: " . self::$transaction_response["auth_transaction_id"] . " - Authorization code: " . self::$transaction_response["auth_code"]);
-
-			$authStatus = '1';
-			$transID 	= self::$transaction_response["auth_transaction_id"];
-			$response = array(
-				'status'				=>	'1',
-				'auth_transaction_id'	=> $transID
-			);
-
-		}else{
-
-			self::log_debug("Capturing funds using prior authorization transaction. Authorization transaction ID: " . self::$transaction_response["auth_transaction_id"] . " - Authorization code: " . self::$transaction_response["auth_code"]);
-
-			//self::$transaction_response['auth_transaction_id']
-			$settings = self::get_api_settings( self::get_local_api_settings( $config ) );
-
-			$authorize = new BluePayment($settings['account_id'], $settings['secret_key'], $settings['mode']);
-			$authorize->capture( self::$transaction_response['auth_transaction_id'] );
-			$authorize->process();
-
-			$response = $authorize->getResponse();
-			$authCode 	= $authorize->getAuthCode();
-			$authStatus = $authorize->getStatus();
-			$transID 	= $authorize->getTransId();
+		elseif ( self::$transaction_response ) {
+			if( self::$transaction_response['type'] == 'ACH' ){
+				
+				self::log_debug("Capturing funds using prior authorization transaction. Authorization transaction ID: " . self::$transaction_response["auth_transaction_id"] . " - Authorization code: " . self::$transaction_response["auth_code"]);
+	
+				$authStatus = '1';
+				$transID 	= self::$transaction_response["auth_transaction_id"];
+				$response = array(
+					'status'				=>	'1',
+					'auth_transaction_id'	=> $transID
+				);
+	
+			}
+			else {
+				self::log_debug("Capturing funds using prior authorization transaction. Authorization transaction ID: " . self::$transaction_response["auth_transaction_id"] . " - Authorization code: " . self::$transaction_response["auth_code"]);
+	
+				//self::$transaction_response['auth_transaction_id']
+				$settings = self::get_api_settings( self::get_local_api_settings( $config ) );
+	
+				$authorize = new BluePayment($settings['account_id'], $settings['secret_key'], $settings['mode']);
+				$authorize->capture( self::$transaction_response['auth_transaction_id'] );
+				$authorize->process();
+	
+				$response = $authorize->getResponse();
+				$authCode 	= $authorize->getAuthCode();
+				$authStatus = $authorize->getStatus();
+				$transID 	= $authorize->getTransId();
+			}
 
 		}
 
@@ -513,10 +528,15 @@ class GFBluePay {
 			self::log_error("Funds could not be captured. Response: ");
 			self::log_error(print_r($response, true));
 
-			$result = array("is_success" => false, "error_code" => $authStatus, "error_message" => $authorize->getMessage() );
+			$result = array("is_success" => false, "error_code" => $authStatus );
+			
+			if ( $authorize ) {
+				$result["error_message"] = $authorize->getMessage();
+			}
 		}
 
 		do_action("gform_blue_pay_post_capture", $result["is_success"], $form_data["amount"], $entry, $form, $config, $response);
+		
 		return $result;
 	}
 
